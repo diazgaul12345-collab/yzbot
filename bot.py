@@ -14,18 +14,15 @@ OWNER_ID = int(os.getenv("OWNER_ID"))
 client = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 # ===== DATA =====
-groups = set()
 warns = {}
 welcome_msg = {}
 leave_msg = {}
+groups = set()
 
 LINK_REGEX = re.compile(r"(https?://|t\.me/|www\.)", re.I)
 
 # ===== RIGHTS =====
-MUTE_5MIN = ChatBannedRights(
-    until_date=300,
-    send_messages=True
-)
+MUTE_5MIN = ChatBannedRights(until_date=300, send_messages=True)
 
 LOCK = ChatBannedRights(
     until_date=None,
@@ -57,7 +54,7 @@ async def is_admin(chat, user_id):
     except:
         return False
 
-# ===== AUTO HELP =====
+# ===== AUTO HELP (SEMUA / ) =====
 @client.on(events.NewMessage)
 async def auto_help(event):
     if event.text and event.text.startswith("/") and not event.text.startswith((
@@ -72,7 +69,7 @@ async def auto_help(event):
             "/lock /unlock"
         )
 
-# ===== TAGALL =====
+# ===== TAGALL (HIDDEN MENTION REAL) =====
 @client.on(events.NewMessage(pattern=r"^/tagall"))
 async def tagall(event):
     if not event.is_group:
@@ -83,25 +80,22 @@ async def tagall(event):
 
     text = event.text.replace("/tagall", "").strip() or "."
 
-    members = []
+    mentions = ""
     async for u in client.iter_participants(event.chat_id):
         if not u.bot:
-            members.append(u)
+            mentions += f"[‎](tg://user?id={u.id})"
 
-    hidden = "".join("\u2063" for _ in members)
-
+    # kirim 4x
     for _ in range(4):
-        await event.respond(f"{text}{hidden}")
+        await event.respond(f"{text}\n{mentions}", parse_mode="md")
 
 # ===== ANTI LINK =====
 @client.on(events.NewMessage)
 async def anti_link(event):
     if not event.is_group or not event.text:
         return
-
     if not LINK_REGEX.search(event.text):
         return
-
     if await is_admin(event.chat, event.sender_id):
         return
 
@@ -114,7 +108,7 @@ async def anti_link(event):
 
     await client(EditBannedRequest(event.chat_id, uid, MUTE_5MIN))
 
-# ===== WELCOME / LEAVE =====
+# ===== WELCOME / LEAVE (AUTO DELETE 5 MENIT) =====
 @client.on(events.ChatAction)
 async def welcome_leave(event):
     chat_id = event.chat_id
@@ -138,7 +132,6 @@ async def welcome_leave(event):
             await asyncio.sleep(300)
             await msg.delete()
 
-# ===== SET WELCOME / LEAVE =====
 @client.on(events.NewMessage(pattern=r"^/welcome"))
 async def set_welcome(event):
     if await is_admin(event.chat, event.sender_id):
@@ -149,16 +142,14 @@ async def set_leave(event):
     if await is_admin(event.chat, event.sender_id):
         leave_msg[event.chat_id] = event.text.replace("/leave", "").strip()
 
-# ===== ADMIN TAG =====
+# ===== TAG ADMIN → REPLY =====
 @client.on(events.NewMessage)
 async def admin_tag(event):
     if not event.is_group or not event.entities:
         return
-
     admins = []
     async for a in client.iter_participants(event.chat_id, filter=ChannelParticipantsAdmins):
         admins.append(a.id)
-
     for e in event.entities:
         if hasattr(e, "user_id") and e.user_id in admins:
             await event.reply("sabar bang")
