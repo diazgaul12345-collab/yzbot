@@ -2,16 +2,18 @@ import os
 import re
 import asyncio
 from telethon import TelegramClient, events
-from telethon.tl.functions.channels import GetParticipantRequest, EditBannedRequest
 from telethon.tl.types import ChatBannedRights, ChannelParticipantsAdmins
+from telethon.tl.functions.channels import EditBannedRequest, GetParticipantRequest
 
+# ===== ENV =====
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "7150694117"))
+OWNER_ID = int(os.getenv("OWNER_ID"))
 
 client = TelegramClient("bot", API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
+# ===== DATA =====
 groups = set()
 warns = {}
 welcome_msg = {}
@@ -19,128 +21,142 @@ leave_msg = {}
 
 LINK_REGEX = re.compile(r"(https?://|t\.me/|www\.)", re.I)
 
-MUTE_5MIN = ChatBannedRights(until_date=300, send_messages=True)
-LOCK = ChatBannedRights(send_messages=True)
-UNLOCK = ChatBannedRights(send_messages=False)
+# ===== RIGHTS =====
+MUTE_5MIN = ChatBannedRights(
+    until_date=300,
+    send_messages=True
+)
 
-# ================= UTILS =================
-async def is_admin(chat, user):
+LOCK = ChatBannedRights(
+    until_date=None,
+    send_messages=True,
+    send_media=True,
+    send_stickers=True,
+    send_gifs=True,
+    send_games=True,
+    send_inline=True,
+    embed_links=True
+)
+
+UNLOCK = ChatBannedRights(
+    until_date=None,
+    send_messages=False,
+    send_media=False,
+    send_stickers=False,
+    send_gifs=False,
+    send_games=False,
+    send_inline=False,
+    embed_links=False
+)
+
+# ===== UTILS =====
+async def is_admin(chat, user_id):
     try:
-        p = await client(GetParticipantRequest(chat, user))
-        return p.participant.admin_rights or p.participant.creator
+        p = await client(GetParticipantRequest(chat, user_id))
+        return bool(p.participant.admin_rights or p.participant.creator)
     except:
         return False
 
-# ================= EVENTS =================
+# ===== AUTO HELP =====
 @client.on(events.NewMessage)
-async def any_slash(event):
-    if event.text.startswith("/") and not event.text.startswith((
+async def auto_help(event):
+    if event.text and event.text.startswith("/") and not event.text.startswith((
         "/tagall","/ping","/welcome","/leave","/kick","/lock","/unlock"
     )):
         await event.reply(
             "/tagall (pesan)\n"
             "/ping\n"
-            "/welcome set pesan\n"
-            "/leave set pesan\n"
-            "/kick @user\n"
+            "/welcome teks\n"
+            "/leave teks\n"
+            "/kick (reply user)\n"
             "/lock /unlock"
         )
 
-# =============== TAGALL ===================
-@client.on(events.NewMessage(pattern="/tagall"))
+# ===== TAGALL =====
+@client.on(events.NewMessage(pattern=r"^/tagall"))
 async def tagall(event):
     if not event.is_group:
         return
 
-    chat = event.chat
-    sender = await event.get_sender()
-
-    if not (await is_admin(chat, sender.id) or sender.id == OWNER_ID):
+    if not (await is_admin(event.chat, event.sender_id) or event.sender_id == OWNER_ID):
         return
 
-    text = event.text.replace("/tagall", "").strip()
-    if not text:
-        text = "."
+    text = event.text.replace("/tagall", "").strip() or "."
 
     members = []
-    async for u in client.iter_participants(chat):
+    async for u in client.iter_participants(event.chat_id):
         if not u.bot:
             members.append(u)
 
+    hidden = "".join("\u2063" for _ in members)
+
     for _ in range(4):
-        hidden = "".join(["\u2063" for _ in members])
         await event.respond(f"{text}{hidden}")
 
-# =============== ANTI LINK =================
+# ===== ANTI LINK =====
 @client.on(events.NewMessage)
 async def anti_link(event):
-    if not event.is_group:
-        return
-
-    if not event.text:
+    if not event.is_group or not event.text:
         return
 
     if not LINK_REGEX.search(event.text):
         return
 
-    sender = await event.get_sender()
-    chat = event.chat
-
-    if await is_admin(chat, sender.id):
+    if await is_admin(event.chat, event.sender_id):
         return
 
-    warns[sender.id] = warns.get(sender.id, 0) + 1
+    uid = event.sender_id
+    warns[uid] = warns.get(uid, 0) + 1
 
-    if warns[sender.id] > 5:
-        await client.kick_participant(chat, sender.id)
+    if warns[uid] > 5:
+        await client.kick_participant(event.chat_id, uid)
         return
 
-    await client(EditBannedRequest(chat, sender.id, MUTE_5MIN))
+    await client(EditBannedRequest(event.chat_id, uid, MUTE_5MIN))
 
-# =============== WELCOME / LEAVE ===========
+# ===== WELCOME / LEAVE =====
 @client.on(events.ChatAction)
 async def welcome_leave(event):
-    chat = event.chat
+    chat_id = event.chat_id
 
     if event.user_joined or event.user_added:
-        if chat.id in welcome_msg:
+        if chat_id in welcome_msg:
             msg = await event.reply(
-                welcome_msg[chat.id].replace("(user)", f"[{event.user.first_name}](tg://user?id={event.user.id})")
+                welcome_msg[chat_id].replace(
+                    "(user)",
+                    f"[{event.user.first_name}](tg://user?id={event.user.id})"
+                )
             )
             await asyncio.sleep(300)
             await msg.delete()
 
     if event.user_left or event.user_kicked:
-        if chat.id in leave_msg:
+        if chat_id in leave_msg:
             msg = await event.reply(
-                leave_msg[chat.id].replace("(user)", event.user.first_name)
+                leave_msg[chat_id].replace("(user)", event.user.first_name)
             )
             await asyncio.sleep(300)
             await msg.delete()
 
-# =============== SET WELCOME ===============
-@client.on(events.NewMessage(pattern="/welcome"))
+# ===== SET WELCOME / LEAVE =====
+@client.on(events.NewMessage(pattern=r"^/welcome"))
 async def set_welcome(event):
-    if not await is_admin(event.chat, event.sender_id):
-        return
-    welcome_msg[event.chat_id] = event.text.replace("/welcome", "").strip()
+    if await is_admin(event.chat, event.sender_id):
+        welcome_msg[event.chat_id] = event.text.replace("/welcome", "").strip()
 
-@client.on(events.NewMessage(pattern="/leave"))
+@client.on(events.NewMessage(pattern=r"^/leave"))
 async def set_leave(event):
-    if not await is_admin(event.chat, event.sender_id):
-        return
-    leave_msg[event.chat_id] = event.text.replace("/leave", "").strip()
+    if await is_admin(event.chat, event.sender_id):
+        leave_msg[event.chat_id] = event.text.replace("/leave", "").strip()
 
-# =============== ADMIN TAG =================
+# ===== ADMIN TAG =====
 @client.on(events.NewMessage)
 async def admin_tag(event):
-    if not event.is_group:
-        return
-    if not event.entities:
+    if not event.is_group or not event.entities:
         return
 
     admins = []
-    async for a in client.iter_participants(event.chat, filter=ChannelParticipantsAdmins):
+    async for a in client.iter_participants(event.chat_id, filter=ChannelParticipantsAdmins):
         admins.append(a.id)
 
     for e in event.entities:
@@ -148,37 +164,28 @@ async def admin_tag(event):
             await event.reply("sabar bang")
             break
 
-# =============== COMMANDS ==================
+# ===== COMMANDS =====
 @client.on(events.NewMessage(pattern="/ping"))
 async def ping(event):
     await event.reply("pong")
 
-@client.on(events.NewMessage(pattern="/groups"))
-async def list_groups(event):
-    if event.sender_id != OWNER_ID:
-        return
-    txt = "\n".join(str(g) for g in groups)
-    await event.reply(txt or "kosong")
-
 @client.on(events.NewMessage(pattern="/kick"))
 async def kick(event):
-    if not await is_admin(event.chat, event.sender_id):
-        return
-    if event.reply_to_msg_id:
+    if await is_admin(event.chat, event.sender_id) and event.reply_to_msg_id:
         r = await event.get_reply_message()
-        await client.kick_participant(event.chat, r.sender_id)
+        await client.kick_participant(event.chat_id, r.sender_id)
 
 @client.on(events.NewMessage(pattern="/lock"))
 async def lock(event):
     if await is_admin(event.chat, event.sender_id):
-        await client(EditBannedRequest(event.chat, event.chat_id, LOCK))
+        await client(EditBannedRequest(event.chat_id, event.chat_id, LOCK))
 
 @client.on(events.NewMessage(pattern="/unlock"))
 async def unlock(event):
     if await is_admin(event.chat, event.sender_id):
-        await client(EditBannedRequest(event.chat, event.chat_id, UNLOCK))
+        await client(EditBannedRequest(event.chat_id, event.chat_id, UNLOCK))
 
-# =============== TRACK GROUP ===============
+# ===== TRACK GROUP =====
 @client.on(events.NewMessage)
 async def track(event):
     if event.is_group:
