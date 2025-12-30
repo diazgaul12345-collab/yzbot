@@ -1,4 +1,4 @@
-telethon
-python-dotenv
-tgcrypto
-pyrogram
+pyrogram==2.0.106
+tgcrypto==1.2.5
+python-dotenv==1.2.1
+asyncio
