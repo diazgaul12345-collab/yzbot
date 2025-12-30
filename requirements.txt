@@ -1,2 +1,4 @@
 telethon
 python-dotenv
+tgcrypto
+pyrogram
